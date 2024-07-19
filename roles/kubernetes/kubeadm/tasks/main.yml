@@ -1,6 +1,7 @@
 ---
 - name: Set kubeadm_discovery_address
   set_fact:
+    # noqa: jinja[spacing]
     kubeadm_discovery_address: >-
       {%- if "127.0.0.1" in kube_apiserver_endpoint or "localhost" in kube_apiserver_endpoint -%}
       {{ first_kube_control_plane_address }}:{{ kube_apiserver_port }}
@@ -56,6 +57,24 @@
   set_fact:
     kubeadmConfig_api_version: v1beta3
 
+- name: Get kubeconfig for join discovery process
+  command: "{{ kubectl }} -n kube-public get cm cluster-info -o jsonpath='{.data.kubeconfig}'"
+  register: kubeconfig_file_discovery
+  run_once: true
+  delegate_to: "{{ groups['kube_control_plane'] | first }}"
+  when: kubeadm_use_file_discovery
+
+- name: Copy discovery kubeconfig
+  copy:
+    dest: "{{ kube_config_dir }}/cluster-info-discovery-kubeconfig.yaml"
+    content: "{{ kubeconfig_file_discovery.stdout }}"
+    owner: "root"
+    mode: 0644
+  when:
+    - not is_kube_master
+    - not kubelet_conf.stat.exists
+    - kubeadm_use_file_discovery
+
 - name: Create kubeadm client config
   template:
     src: "kubeadm-client.conf.{{ kubeadmConfig_api_version }}.j2"
@@ -64,14 +83,14 @@
     mode: 0640
   when: not is_kube_master
 
-- name: kubeadm | Create directory to store kubeadm patches
+- name: Kubeadm | Create directory to store kubeadm patches
   file:
     path: "{{ kubeadm_patches.dest_dir }}"
     state: directory
     mode: 0640
   when: kubeadm_patches is defined and kubeadm_patches.enabled
 
-- name: kubeadm | Copy kubeadm patches from inventory files
+- name: Kubeadm | Copy kubeadm patches from inventory files
   copy:
     src: "{{ kubeadm_patches.source_dir }}/"
     dest: "{{ kubeadm_patches.dest_dir }}"
@@ -128,6 +147,17 @@
     - kubeadm_discovery_address != kube_apiserver_endpoint | replace("https://", "")
   notify: Kubeadm | restart kubelet
 
+- name: Update server field in kubelet kubeconfig - external lb
+  lineinfile:
+    dest: "{{ kube_config_dir }}/kubelet.conf"
+    regexp: '^    server: https'
+    line: '    server: {{ kube_apiserver_endpoint }}'
+    backup: yes
+  when:
+    - not is_kube_master
+    - loadbalancer_apiserver is defined
+  notify: Kubeadm | restart kubelet
+
 # FIXME(mattymo): Need to point to localhost, otherwise masters will all point
 #                 incorrectly to first master, creating SPoF.
 - name: Update server field in kube-proxy kubeconfig
@@ -138,13 +168,29 @@
   args:
     executable: /bin/bash
   run_once: true
-  delegate_to: "{{ groups['kube_control_plane']|first }}"
+  delegate_to: "{{ groups['kube_control_plane'] | first }}"
   delegate_facts: false
   when:
     - kubeadm_config_api_fqdn is not defined
     - kubeadm_discovery_address != kube_apiserver_endpoint | replace("https://", "")
     - kube_proxy_deployed
     - loadbalancer_apiserver_localhost
+  tags:
+    - kube-proxy
+
+- name: Update server field in kube-proxy kubeconfig - external lb
+  shell: >-
+    set -o pipefail && {{ kubectl }} get configmap kube-proxy -n kube-system -o yaml
+    | sed 's#server:.*#server: {{kube_apiserver_endpoint}}#g'
+    | {{ kubectl }} replace -f -
+  args:
+    executable: /bin/bash
+  run_once: true
+  delegate_to: "{{ groups['kube_control_plane'] | first }}"
+  delegate_facts: false
+  when:
+    - kube_proxy_deployed
+    - loadbalancer_apiserver is defined
   tags:
     - kube-proxy
 
@@ -158,11 +204,11 @@
 - name: Restart all kube-proxy pods to ensure that they load the new configmap
   command: "{{ kubectl }} delete pod -n kube-system -l k8s-app=kube-proxy --force --grace-period=0"
   run_once: true
-  delegate_to: "{{ groups['kube_control_plane']|first }}"
+  delegate_to: "{{ groups['kube_control_plane'] | first }}"
   delegate_facts: false
   when:
-    - kubeadm_config_api_fqdn is not defined
-    - kubeadm_discovery_address != kube_apiserver_endpoint | replace("https://", "")
+    - kubeadm_config_api_fqdn is not defined or loadbalancer_apiserver is defined
+    - kubeadm_discovery_address != kube_apiserver_endpoint | replace("https://", "") or loadbalancer_apiserver is defined
     - kube_proxy_deployed
   tags:
     - kube-proxy
@@ -172,5 +218,5 @@
   when:
     - etcd_deployment_type == "kubeadm"
     - inventory_hostname not in groups['kube_control_plane']
-    - kube_network_plugin in ["calico", "flannel", "canal", "cilium"] or cilium_deploy_additionally | default(false) | bool
+    - kube_network_plugin in ["calico", "flannel", "cilium"] or cilium_deploy_additionally | default(false) | bool
     - kube_network_plugin != "calico" or calico_datastore == "etcd"

@@ -15,11 +15,12 @@ variable "private_network_cidr" {}
 variable "machines" {
   description = "Cluster machines"
   type = map(object({
-    node_type       = string
-    plan            = string
-    cpu             = string
-    mem             = string
-    disk_size       =  number
+    node_type = string
+    plan      = string
+    cpu       = string
+    mem       = string
+    disk_size = number
+    server_group : string
     additional_disks = map(object({
       size = number
       tier = string
@@ -85,11 +86,24 @@ variable "loadbalancer_plan" {
   type = string
 }
 
+variable "loadbalancer_outbound_proxy_protocol" {
+  type = string
+}
+
 variable "loadbalancers" {
   description = "Load balancers"
 
   type = map(object({
     port            = number
+    target_port     = number
     backend_servers = list(string)
+  }))
+}
+
+variable "server_groups" {
+  description = "Server groups"
+
+  type = map(object({
+    anti_affinity_policy = string
   }))
 }

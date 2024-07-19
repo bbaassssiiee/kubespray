@@ -1,7 +1,7 @@
 # your Kubernetes cluster name here
 cluster_name = "mycluster"
 
-# Your Equinix Metal project ID. See hhttps://metal.equinix.com/developers/docs/accounts/
+# Your Equinix Metal project ID. See https://metal.equinix.com/developers/docs/accounts/
 equinix_metal_project_id = "Example-Project-Id"
 
 # The public SSH key to be uploaded into authorized_keys in bare metal Equinix Metal nodes provisioned
@@ -9,8 +9,8 @@ equinix_metal_project_id = "Example-Project-Id"
 # Terraform will complain if the public key is setup in Equinix Metal
 public_key_path = "~/.ssh/id_rsa.pub"
 
-# cluster location
-facility = "ewr1"
+# Equinix interconnected bare metal across our global metros.
+metro = "da"
 
 # operating_system
 operating_system = "ubuntu_22_04"

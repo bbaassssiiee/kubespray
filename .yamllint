@@ -3,6 +3,9 @@ extends: default
 
 ignore: |
   .git/
+  .github/
+  # Generated file
+  tests/files/custom_cni/cilium.yaml
 
 rules:
   braces:

@@ -93,8 +93,6 @@ spec:
       serviceAccountName: calico-apiserver
       tolerations:
       - effect: NoSchedule
-        key: node-role.kubernetes.io/master
-      - effect: NoSchedule
         key: node-role.kubernetes.io/control-plane
       volumes:
       - name: calico-apiserver-certs
@@ -159,9 +157,11 @@ rules:
   - networksets
   - bgpconfigurations
   - bgppeers
+  - bgpfilters
   - felixconfigurations
   - kubecontrollersconfigurations
   - ippools
+  - ipamconfigs
   - ipreservations
   - ipamblocks
   - blockaffinities
@@ -173,14 +173,6 @@ rules:
   - create
   - update
   - delete
-- apiGroups:
-  - policy
-  resourceNames:
-  - calico-apiserver
-  resources:
-  - podsecuritypolicies
-  verbs:
-  - use
 
 ---
 

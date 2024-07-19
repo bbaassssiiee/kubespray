@@ -12,14 +12,13 @@
   register: slc
 
 - name: Set selinux policy
-  selinux:
+  ansible.posix.selinux:
     policy: targeted
     state: "{{ preinstall_selinux_state }}"
   when:
     - ansible_os_family == "RedHat"
     - "'Amazon' not in ansible_distribution"
     - slc.stat.exists
-  changed_when: False
   tags:
     - bootstrap-os
 
@@ -71,7 +70,7 @@
     mode: 0755
 
 - name: Enable ip forwarding
-  sysctl:
+  ansible.posix.sysctl:
     sysctl_file: "{{ sysctl_file_path }}"
     name: net.ipv4.ip_forward
     value: "1"
@@ -79,10 +78,10 @@
     reload: yes
 
 - name: Enable ipv6 forwarding
-  sysctl:
+  ansible.posix.sysctl:
     sysctl_file: "{{ sysctl_file_path }}"
     name: net.ipv6.conf.all.forwarding
-    value: 1
+    value: "1"
     state: present
     reload: yes
   when: enable_dual_stack_networks | bool
@@ -97,7 +96,7 @@
   ignore_errors: true  # noqa ignore-errors
 
 - name: Set fs.may_detach_mounts if needed
-  sysctl:
+  ansible.posix.sysctl:
     sysctl_file: "{{ sysctl_file_path }}"
     name: fs.may_detach_mounts
     value: 1
@@ -105,8 +104,8 @@
     reload: yes
   when: fs_may_detach_mounts.stat.exists | d(false)
 
-- name: Ensure kube-bench parameters are set
-  sysctl:
+- name: Ensure kubelet expected parameters are set
+  ansible.posix.sysctl:
     sysctl_file: "{{ sysctl_file_path }}"
     name: "{{ item.name }}"
     value: "{{ item.value }}"
@@ -119,20 +118,28 @@
     - { name: kernel.panic_on_oops, value: 1 }
     - { name: vm.overcommit_memory, value: 1 }
     - { name: vm.panic_on_oom, value: 0 }
-  when: kubelet_protect_kernel_defaults|bool
+  when: kubelet_protect_kernel_defaults | bool
 
 - name: Check dummy module
-  modprobe:
+  community.general.modprobe:
     name: dummy
     state: present
     params: 'numdummies=0'
   when: enable_nodelocaldns
 
 - name: Set additional sysctl variables
-  sysctl:
+  ansible.posix.sysctl:
     sysctl_file: "{{ sysctl_file_path }}"
     name: "{{ item.name }}"
     value: "{{ item.value }}"
     state: present
     reload: yes
   with_items: "{{ additional_sysctl }}"
+
+- name: Disable fapolicyd service
+  failed_when: false
+  systemd:
+    name: fapolicyd
+    state: stopped
+    enabled: false
+  when: disable_fapolicyd

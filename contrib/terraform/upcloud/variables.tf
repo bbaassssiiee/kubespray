@@ -32,6 +32,7 @@ variable "machines" {
     cpu       = string
     mem       = string
     disk_size = number
+    server_group : string
     additional_disks = map(object({
       size = number
       tier = string
@@ -121,12 +122,28 @@ variable "loadbalancer_plan" {
   default     = "development"
 }
 
+variable "loadbalancer_proxy_protocol" {
+  type    = bool
+  default = false
+}
+
 variable "loadbalancers" {
   description = "Load balancers"
 
   type = map(object({
     port            = number
+    target_port     = number
     backend_servers = list(string)
   }))
+  default = {}
+}
+
+variable "server_groups" {
+  description = "Server groups"
+
+  type = map(object({
+    anti_affinity_policy = string
+  }))
+
   default = {}
 }

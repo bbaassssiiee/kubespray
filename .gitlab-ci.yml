@@ -1,20 +1,17 @@
 ---
 stages:
   - build
-  - unit-tests
+  - test
   - deploy-part1
-  - moderator
-  - deploy-part2
-  - deploy-part3
-  - deploy-special
+  - deploy-extended
 
 variables:
-  KUBESPRAY_VERSION: v2.21.0
+  KUBESPRAY_VERSION: v2.25.0
   FAILFASTCI_NAMESPACE: 'kargo-ci'
   GITLAB_REPOSITORY: 'kargo-ci/kubernetes-sigs-kubespray'
   ANSIBLE_FORCE_COLOR: "true"
   MAGIC: "ci check this"
-  TEST_ID: "$CI_PIPELINE_ID-$CI_BUILD_ID"
+  TEST_ID: "$CI_PIPELINE_ID-$CI_JOB_ID"
   CI_TEST_VARS: "./tests/files/${CI_JOB_NAME}.yml"
   CI_TEST_REGISTRY_MIRROR: "./tests/common/_docker_hub_registry_mirror.yml"
   CI_TEST_SETTING: "./tests/common/_kubespray_test_settings.yml"
@@ -33,30 +30,38 @@ variables:
   MITOGEN_ENABLE: "false"
   ANSIBLE_LOG_LEVEL: "-vv"
   RECOVER_CONTROL_PLANE_TEST: "false"
-  RECOVER_CONTROL_PLANE_TEST_GROUPS: "etcd[2:],kube_control_plane[1:]"
+  RECOVER_CONTROL_PLANE_TEST_GROUPS: "etcd[2:]:kube_control_plane[1:]"
   TERRAFORM_VERSION: 1.3.7
-  ANSIBLE_MAJOR_VERSION: "2.11"
   PIPELINE_IMAGE: "$CI_REGISTRY_IMAGE/pipeline:${CI_PIPELINE_ID}-${CI_COMMIT_SHORT_SHA}"
 
 before_script:
   - ./tests/scripts/rebase.sh
-  - update-alternatives --install /usr/bin/python python /usr/bin/python3 1
-  - python -m pip uninstall -y ansible ansible-base ansible-core
-  - python -m pip install -r tests/requirements-${ANSIBLE_MAJOR_VERSION}.txt
   - mkdir -p /.ssh
 
 .job: &job
   tags:
-    - packet
+    - ffci
   image: $PIPELINE_IMAGE
   artifacts:
     when: always
     paths:
       - cluster-dump/
+  needs:
+    - pipeline-image
+
+.job-moderated:
+  extends: .job
+  needs:
+    - pipeline-image
+    - ci-not-authorized
+    - check-galaxy-version  # lint
+    - pre-commit            # lint
+    - vagrant-validate      # lint
 
 .testcases: &testcases
-  <<: *job
+  extends: .job-moderated
   retry: 1
+  interruptible: true
   before_script:
     - update-alternatives --install /usr/bin/python python /usr/bin/python3 1
     - ./tests/scripts/rebase.sh
@@ -64,23 +69,38 @@ before_script:
   script:
     - ./tests/scripts/testcases_run.sh
   after_script:
-    - chronic ./tests/scripts/testcases_cleanup.sh
+    - ./tests/scripts/testcases_cleanup.sh
 
 # For failfast, at least 1 job must be defined in .gitlab-ci.yml
 # Premoderated with manual actions
-ci-authorized:
-  extends: .job
-  stage: moderator
+ci-not-authorized:
+  stage: build
+  before_script: []
+  after_script: []
+  rules:
+    # LGTM or ok-to-test labels
+    - if: $PR_LABELS =~ /.*,(lgtm|approved|ok-to-test).*|^(lgtm|approved|ok-to-test).*/i
+      variables:
+        CI_OK_TO_TEST: '0'
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "schedule" || $CI_PIPELINE_SOURCE == "trigger"
+      variables:
+        CI_OK_TO_TEST: '0'
+    - if: $CI_COMMIT_BRANCH == "master"
+      variables:
+        CI_OK_TO_TEST: '0'
+    - when: always
+      variables:
+        CI_OK_TO_TEST: '1'
   script:
-    - /bin/sh scripts/premoderator.sh
-  except: ['triggers', 'master']
-  # Disable ci moderator
-  only: []
+    - exit $CI_OK_TO_TEST
+  tags:
+    - ffci
+  needs: []
 
 include:
   - .gitlab-ci/build.yml
   - .gitlab-ci/lint.yml
-  - .gitlab-ci/shellcheck.yml
   - .gitlab-ci/terraform.yml
   - .gitlab-ci/packet.yml
   - .gitlab-ci/vagrant.yml

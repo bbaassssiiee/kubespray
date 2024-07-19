@@ -23,6 +23,26 @@ spec:
     spec:
       serviceAccountName: ingress-nginx
       terminationGracePeriodSeconds: {{ ingress_nginx_termination_grace_period_seconds }}
+{% if ingress_nginx_opentelemetry_enabled %}
+      initContainers:
+      - name: opentelemetry
+        command:
+        - /init_module
+        image: {{ ingress_nginx_opentelemetry_image_repo }}:{{ ingress_nginx_opentelemetry_image_tag }}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          allowPrivilegeEscalation: false
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /modules_mount
+          name: modules
+{% endif %}
 {% if ingress_nginx_host_network %}
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
@@ -35,7 +55,7 @@ spec:
       tolerations:
         {{ ingress_nginx_tolerations | to_nice_yaml(indent=2) | indent(width=8) }}
 {% endif %}
-      priorityClassName: {% if ingress_nginx_namespace == 'kube-system' %}system-node-critical{% else %}k8s-cluster-critical{% endif %}{{''}}
+      priorityClassName: {% if ingress_nginx_namespace == 'kube-system' %}system-node-critical{% else %}k8s-cluster-critical{% endif %}{{ '' }}
       containers:
         - name: ingress-nginx-controller
           image: {{ ingress_nginx_controller_image_repo }}:{{ ingress_nginx_controller_image_tag }}
@@ -48,12 +68,12 @@ spec:
           args:
             - /nginx-ingress-controller
             - --configmap=$(POD_NAMESPACE)/ingress-nginx
+            - --election-id=ingress-controller-leader-{{ ingress_nginx_class }}
             - --tcp-services-configmap=$(POD_NAMESPACE)/tcp-services
             - --udp-services-configmap=$(POD_NAMESPACE)/udp-services
             - --annotations-prefix=nginx.ingress.kubernetes.io
-{% if ingress_nginx_class is defined %}
             - --ingress-class={{ ingress_nginx_class }}
-{% else %}
+{% if ingress_nginx_without_class %}
             - --watch-ingress-without-class=true
 {% endif %}
 {% if ingress_nginx_host_network %}
@@ -127,15 +147,27 @@ spec:
             timeoutSeconds: 5
             successThreshold: 1
             failureThreshold: 3
-{% if ingress_nginx_webhook_enabled %}
+{% if ingress_nginx_webhook_enabled or ingress_nginx_opentelemetry_enabled %}
           volumeMounts:
+{% if ingress_nginx_webhook_enabled %}
             - mountPath: /usr/local/certificates/
               name: webhook-cert
               readOnly: true
 {% endif %}
-{% if ingress_nginx_webhook_enabled %}
+{% if ingress_nginx_opentelemetry_enabled %}
+            - name: modules
+              mountPath: /modules_mount
+{% endif %}
+{% endif %}
+{% if ingress_nginx_webhook_enabled or ingress_nginx_opentelemetry_enabled %}
       volumes:
+{% if ingress_nginx_webhook_enabled %}
         - name: webhook-cert
           secret:
             secretName: ingress-nginx-admission
+{% endif %}
+{% if ingress_nginx_opentelemetry_enabled %}
+        - name: modules
+          emptyDir: {}
+{% endif %}
 {% endif %}
