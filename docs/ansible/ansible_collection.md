@@ -21,7 +21,7 @@ Kubespray can be installed as an [Ansible collection](https://docs.ansible.com/a
 2. Install your collection
 
    ```ShellSession
-   ansible-galaxy install -r requirements.yml
+   ansible-galaxy collection install -r requirements.yml
    ```
 
 3. Create a playbook to install your Kubernetes cluster
