@@ -173,7 +173,7 @@ class KubeManager(object):
         if check and self.exists():
             return []
 
-        cmd = ['apply']
+        cmd = ['create']
 
         if force:
             cmd.append('--force')
